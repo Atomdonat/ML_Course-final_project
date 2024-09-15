@@ -8,10 +8,12 @@ from PIL import Image
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-
-
 import torch
 from torchvision import datasets, transforms
+
+
+# Setup device agnostic code
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def imshow(image, ax=None, title=None, normalize=True):
@@ -38,18 +40,21 @@ def imshow(image, ax=None, title=None, normalize=True):
     return ax
 
 
-def create_train_and_test_datasets(image_dir: str) -> (torch.utils.data.dataset.Subset, torch.utils.data.dataset.Subset):
+def create_train_and_test_datasets(image_dir: str, train_size: float) -> (torch.utils.data.dataset.Subset, torch.utils.data.dataset.Subset):
     transform = transforms.Compose([
-        # transforms.Resize(255),
         transforms.ToTensor()
     ])
     dataset = datasets.ImageFolder(image_dir, transform=transform)
-    return torch.utils.data.random_split(dataset, [0.8, 0.2])
+    return torch.utils.data.random_split(dataset, [train_size, 1-train_size])
+
+
+def train_convnext_tiny():
+    pass
 
 
 if __name__ == "__main__":
     data_dir = './EuroSAT_Images/EuroSAT_RGB'
-    X_train, X_test = create_train_and_test_datasets(data_dir)
+    X_train, X_test = create_train_and_test_datasets(data_dir, 0.8)
 
     train_data_loader = torch.utils.data.DataLoader(X_train, batch_size=32, shuffle=True)
     test_data_loader = torch.utils.data.DataLoader(X_test, batch_size=32, shuffle=True)
