@@ -3,14 +3,10 @@
 [//]: # (## .gitignore)
 
 ## dataset-train_and_test.py
-- load and split dataset (train and test) accordingly
-- added method to display images of dataset (user-friendly purpose)
+- somehow `torchvision.datasets.eurosat.EuroSAT()` is working again &rarr; modified `create_train_and_test_datasets()`
+- added docstrings
 
-## model.py
-- created subclass of ConvNeXt to implement our Code
-- added 4 methods each to load and save different parts of the model (state_dict, entire model as .pt, entire model as TorchScript, current Progress)
-- added "dynamic" optimizer swapability 
-- method to get relevant CPU (and GPU) Specifications to select correct one for CUDA and PyTorch  
+[//]: # (## model.py)
 
 ## README.md
-- added
+- minor changes

@@ -5,8 +5,9 @@
 2) Install other Python/Conda Packages: matplotlib, Pillow/PIL, (pycuda, py-cpuinfo)
 
 ## Troubleshooting
-- the original Dataset link is unusable due to an invalid SSL CERT which won't get renewed or replaced (old link is hardcoded in `torchvision.datasets.eurosat.EuroSAT()` ¯\(°_o)/¯)
-  - instead of using `datasets.EuroSAT()` we are using `datasets.ImageFolder()` (EuroSAT is subclass of ImageFolder)
+- ~~the original Dataset link is unusable due to an invalid SSL CERT which won't get renewed or replaced (old link is hardcoded in `torchvision.datasets.eurosat.EuroSAT()` ¯\(°_o)/¯)~~
+  - ~~instead of using `datasets.EuroSAT()` we are using `datasets.ImageFolder()` (EuroSAT is subclass of ImageFolder)~~
+  - somehow `torchvision.datasets.eurosat.EuroSAT()` works again (thanks, i guess?)
 
 ## Glossary
 - **CNN:** Convolutional Neural Network
