@@ -2,11 +2,17 @@
 
 [//]: # (## .gitignore)
 
-## dataset-train_and_test.py
-- somehow `torchvision.datasets.eurosat.EuroSAT()` is working again &rarr; modified `create_train_and_test_datasets()`
-- added docstrings
+[//]: # (## dataset-train_and_test.py)
 
-[//]: # (## model.py)
 
-## README.md
-- minor changes
+## model.py
+- made criterion (Loss Function) changeable 
+- completed train_model()
+
+## code_of_tutorial-convnext_version.py
+- copied code from Course Tutorial for finetuning different models and parameters (original Notebook by: https://github.com/inkawhich)
+- redesigned for ConvNeXt Tiny Usage
+- working
+
+[//]: # (## README.md)
+[//]: # (- minor changes)

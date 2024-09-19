@@ -1,0 +1,166 @@
+PyTorch Version:  2.4.1
+Torchvision Version:  0.19.1
+E:\Programmieren\Anaconda\envs\ML_with_Python\Lib\site-packages\torchvision\models\_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+E:\Programmieren\Anaconda\envs\ML_with_Python\Lib\site-packages\torchvision\models\_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=ConvNeXt_Tiny_Weights.IMAGENET1K_V1`. You can also use `weights=ConvNeXt_Tiny_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+Initializing Datasets and Dataloaders...
+Params to learn:
+	 classifier.2.weight
+	 classifier.2.bias
+Epoch 0/14
+----------
+train Loss: 0.3882 Acc: 0.9050
+val Loss: 0.1794 Acc: 0.9493
+
+Epoch 1/14
+----------
+train Loss: 0.1556 Acc: 0.9531
+val Loss: 0.1418 Acc: 0.9561
+
+Epoch 2/14
+----------
+train Loss: 0.1243 Acc: 0.9624
+val Loss: 0.1206 Acc: 0.9635
+
+Epoch 3/14
+----------
+train Loss: 0.1099 Acc: 0.9655
+val Loss: 0.1107 Acc: 0.9652
+
+Epoch 4/14
+----------
+train Loss: 0.0979 Acc: 0.9685
+val Loss: 0.1087 Acc: 0.9654
+
+Epoch 5/14
+----------
+train Loss: 0.0897 Acc: 0.9716
+val Loss: 0.1028 Acc: 0.9665
+
+Epoch 6/14
+----------
+train Loss: 0.0843 Acc: 0.9741
+val Loss: 0.1011 Acc: 0.9672
+
+Epoch 7/14
+----------
+train Loss: 0.0800 Acc: 0.9741
+val Loss: 0.0969 Acc: 0.9659
+
+Epoch 8/14
+----------
+train Loss: 0.0757 Acc: 0.9766
+val Loss: 0.0988 Acc: 0.9656
+
+Epoch 9/14
+----------
+train Loss: 0.0705 Acc: 0.9779
+val Loss: 0.0949 Acc: 0.9681
+
+Epoch 10/14
+----------
+train Loss: 0.0679 Acc: 0.9786
+val Loss: 0.0948 Acc: 0.9687
+
+Epoch 11/14
+----------
+train Loss: 0.0672 Acc: 0.9775
+val Loss: 0.0940 Acc: 0.9681
+
+Epoch 12/14
+----------
+train Loss: 0.0622 Acc: 0.9806
+val Loss: 0.0944 Acc: 0.9693
+
+Epoch 13/14
+----------
+train Loss: 0.0600 Acc: 0.9811
+val Loss: 0.0912 Acc: 0.9700
+
+Epoch 14/14
+----------
+train Loss: 0.0602 Acc: 0.9802
+val Loss: 0.0930 Acc: 0.9683
+
+Training complete in 19m 11s
+Best val Acc: 0.970000
+E:\Programmieren\Anaconda\envs\ML_with_Python\Lib\site-packages\torchvision\models\_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+Epoch 0/14
+----------
+train Loss: 1.5605 Acc: 0.4319
+val Loss: 1.1377 Acc: 0.5622
+
+Epoch 1/14
+----------
+train Loss: 1.0036 Acc: 0.6307
+val Loss: 0.7665 Acc: 0.7341
+
+Epoch 2/14
+----------
+train Loss: 0.7460 Acc: 0.7322
+val Loss: 0.6816 Acc: 0.7544
+
+Epoch 3/14
+----------
+train Loss: 0.6020 Acc: 0.7824
+val Loss: 0.5293 Acc: 0.8119
+
+Epoch 4/14
+----------
+train Loss: 0.4846 Acc: 0.8320
+val Loss: 0.3972 Acc: 0.8622
+
+Epoch 5/14
+----------
+train Loss: 0.4024 Acc: 0.8577
+val Loss: 0.4056 Acc: 0.8554
+
+Epoch 6/14
+----------
+train Loss: 0.3509 Acc: 0.8777
+val Loss: 0.3372 Acc: 0.8802
+
+Epoch 7/14
+----------
+train Loss: 0.3258 Acc: 0.8828
+val Loss: 0.3103 Acc: 0.8922
+
+Epoch 8/14
+----------
+train Loss: 0.2760 Acc: 0.9029
+val Loss: 0.2741 Acc: 0.9019
+
+Epoch 9/14
+----------
+train Loss: 0.2547 Acc: 0.9107
+val Loss: 0.3220 Acc: 0.8889
+
+Epoch 10/14
+----------
+train Loss: 0.2276 Acc: 0.9173
+val Loss: 0.2770 Acc: 0.9024
+
+Epoch 11/14
+----------
+train Loss: 0.1960 Acc: 0.9310
+val Loss: 0.2223 Acc: 0.9250
+
+Epoch 12/14
+----------
+train Loss: 0.1933 Acc: 0.9302
+val Loss: 0.2273 Acc: 0.9250
+
+Epoch 13/14
+----------
+train Loss: 0.1604 Acc: 0.9423
+val Loss: 0.2567 Acc: 0.9183
+
+Epoch 14/14
+----------
+train Loss: 0.1513 Acc: 0.9476
+val Loss: 0.2186 Acc: 0.9269
+
+Training complete in 32m 53s
+Best val Acc: 0.926852

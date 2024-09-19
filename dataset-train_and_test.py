@@ -69,9 +69,20 @@ def create_train_and_test_datasets(train_size: float) -> (torch.utils.data.datas
     :param train_size: Proportion of the dataset to use for training (between 0 and 1).
     :return: A tuple containing the training and testing datasets.
     """
-    transform = transforms.Compose([
-        transforms.ToTensor()
-    ])
+    data_transforms = {
+        'train': transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+        'eval': transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+    }
 
     try:
         dataset = datasets.eurosat.EuroSAT('./', download=True, transform=transform)
@@ -79,7 +90,7 @@ def create_train_and_test_datasets(train_size: float) -> (torch.utils.data.datas
     except (FileNotFoundError, RuntimeError) as e:
         print(f"Error loading EuroSAT dataset: {e}")
         print("Falling back to ImageFolder...")
-        dataset = datasets.ImageFolder('./EuroSAT_Images/EuroSAT_RGB', transform=transform)
+        dataset = datasets.ImageFolder('./eurosat/2750', transform=transform)
 
     train_dataset, test_dataset = random_split(dataset, [train_size, 1-train_size])
 
