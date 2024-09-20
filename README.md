@@ -13,11 +13,13 @@
 OMP: Error \#15: Initializing libiomp5md.dll, but found libiomp5md.dll already initialized.
 OMP: Hint This means that multiple copies of the OpenMP runtime have been linked into the program. That is dangerous, since it can degrade performance or cause incorrect results. The best thing to do is to ensure that only a single OpenMP runtime is linked into the process, e.g. by avoiding static linking of the OpenMP runtime in any library. As an unsafe, unsupported, undocumented workaround you can set the environment variable KMP_DUPLICATE_LIB_OK=TRUE to allow the program to continue to execute, but that may cause crashes or silently produce incorrect results. For more information, please see http://www.intel.com/software/products/support/.
 ```
-  - [ ] reinstalling numpy
+  - reinstalling numpy
   
 ## Glossary
-- **CNN:** Convolutional Neural Network
-- **EuroSAT:** Collection of European Satellite Images for Land Use and Land Cover Classification with Sentinel-2
+- **ConvNeXt: The ConvNeXt model is based on the [A ConvNet for the 2020s](https://arxiv.org/abs/2201.03545) paper.**
+- **EuroSAT:** Eurosat is a dataset and deep learning benchmark for land use and land cover classification. The dataset is based on Sentinel-2 satellite images covering 13 spectral bands and consisting out of 10 classes with in total 27,000 labeled and geo-referenced images.
+- **CNN:** Convolutional Neural Network (https://paperswithcode.com/paper/eurosat-a-novel-dataset-and-deep-learning)
+
 
 [//]: # (- **:**)
 
@@ -33,7 +35,10 @@ OMP: Hint This means that multiple copies of the OpenMP runtime have been linked
 
 [//]: # (- **:**)
 
-[//]: # (- **:**)
+## ToDo:
+- [ ] finish code
+- [ ] add all time Accuracy and Loss histories
+  - [ ] create boxplot
 
 ## Bibliography
 - [EuroSAT](https://github.com/phelber/EuroSAT)

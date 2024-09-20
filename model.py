@@ -1,3 +1,4 @@
+import torchvision.models
 from torchvision.models.convnext import ConvNeXt, convnext_tiny
 import torch.optim as optim
 import os
@@ -7,6 +8,10 @@ import platform
 import cpuinfo
 from numba import cuda
 from numba.cuda.cudadrv import enums
+import time
+import copy
+from typing import Optional
+import inspect
 
 
 class Device:
@@ -79,7 +84,6 @@ class Device:
         for key, value in cuda_core_info.items():
             print(f"{key}: {value}")
 
-
     @staticmethod
     def get_cpu_info() -> None:
         physical_cores = psutil.cpu_count(logical=False)
@@ -105,6 +109,7 @@ class Device:
 
 
 # Load entire model object
+# Todo: rename path to ... filename
 def load_current_model(path: str):
         """
         Load the entire model object and set it to evaluation mode.
@@ -131,6 +136,7 @@ def load_current_model(path: str):
 
 
 # Load entire Model as TorchScript Model
+# Todo: rename path to ... filename
 def import_torch_script_model(path: str):
     """
     Load a TorchScript model from a file. Since TorchScript models are not typical nn.Module models,
@@ -161,12 +167,10 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
     :References:
     - ConvNeXt Tiny: https://pytorch.org/vision/main/models/generated/torchvision.models.convnext_tiny.html
     """
-    def __init__(self, prior_weights,**kwargs):
+    def __init__(self, is_pretrained: bool = False, device: torch.device = 'cpu', **kwargs):
         """
-        :References:
-        - ConvNeXt Tiny Weights: https://pytorch.org/vision/main/models/generated/torchvision.models.convnext_tiny.html#torchvision.models.ConvNeXt_Tiny_Weights
 
-        :param prior_weights: The pretrained weights to use. See ConvNeXt_Tiny_Weights for more details and possible values. By default, no pre-trained weights are used.
+        :param device: The torch device to use. By default, CPU is used.
         :param kwargs: Additional arguments passed to ConvNeXt:
                        block_setting (List[CNBlockConfig]);
                        stochastic_depth_prob (float);
@@ -176,27 +180,224 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
                        norm_layer (Optional[Callable[..., nn.Module]]);
         """
         super(ConvNeXtTinyEuroSAT, self).__init__()
-        self.model = convnext_tiny(
-            weights=prior_weights,
 
-        )
+        # define ConvNeXt Parameters
+        # self.model = convnext_tiny(
+        #     weights=prior_weights
+        # )
         self._optimizer = None
-        self.epoch: int = 0
-        self.loss: float = 0.  # Todo: is it a float?
+        self._criterion = torch.nn.CrossEntropyLoss()
+        self._model = None
+        self.save_time = 0
 
-    # _method_name avoids collisions with superclass methods
-    def _train(self):
-        # ToDo: implement me
-        self.to(self.device)
-        pass
+        self.device = device
+        self.num_classes = 10  # Number of LULC Classes / Subdirectories in EuroSAT
+        self.input_size = 224
+        self.ohist = []
+        self.shist = []
+        # initialize model
+        # Todo: replace pretrained [dep] with weights (e.g. ConvNeXt_Tiny_Weights(), previously saved ones or None)
+        self.set_parameter_requires_grad(True)
+        self.model.classifier[2] = torch.nn.Linear(in_features=768, out_features=self.num_classes)
 
-    def _test(self):
-        # ToDo: implement me
-        pass
+    @property
+    def model(self) -> ConvNeXt:
+        """
+        :return: `torchvision.models.convnext.ConvNeXt` object
+        """
+        return self._model
 
-    def _predict(self):
-        # ToDo: implement me
-        pass
+    @model.setter
+    def model(self, from_scratch: bool = False, **kwargs):
+        """
+        Sets new weights or train `model`
+        After finishing any modification the model, its state dict and the model as a TorchScript will be saved.
+
+        :References:
+        - ConvNeXt Tiny Weights: https://pytorch.org/vision/main/models/generated/torchvision.models.convnext_tiny.html#torchvision.models.ConvNeXt_Tiny_Weights
+
+        :param from_scratch:
+        :param kwargs: Additional arguments passed to model to decide which method to call
+                       update_model_weights() - Set new ConvNeXt Tiny Model weights;
+                       :param weights (ConvNeXt.ConvNeXt_Tiny_Weights | None):
+
+                       train_and_validate_model() - Train and validate the model on the given dataloaders;
+                       :param dataloaders: Dataloader containing training and validation data
+                       :param num_epochs: Number of epochs to train the model
+                       :param pretrained_weights: The pretrained weights to use. See :class:`torchvision.models.convnext.ConvNeXt_Tiny_Weights`
+                           for more details and possible values.
+                       :param from_scratch: Train model from scratch or use pretrained weights
+        """
+        def update_model_weights(weights: ConvNeXt.ConvNeXt_Tiny_Weights | None = None):
+            """
+            Set new ConvNeXt Tiny Model weights
+
+            :references:
+            - ConvNeXt Tiny Weights: https://pytorch.org/vision/main/models/generated/torchvision.models.convnext_tiny.html#torchvision.models.ConvNeXt_Tiny_Weights
+
+            :param weights: The pretrained weights to use. See :class:`torchvision.models.convnext.ConvNeXt_Tiny_Weights`
+                for more details and possible values. By default, no pre-trained weights are used.
+            """
+            if not from_scratch:
+                model_ft = convnext_tiny(weights=weights)
+            else:
+                model_ft = convnext_tiny(weights=None)
+
+            self.set_parameter_requires_grad(True)
+            model_ft.classifier[2] = torch.nn.Linear(in_features=768, out_features=self.num_classes)
+
+            self._model = model_ft
+            self._model.to(self.device)
+
+        def train_and_validate_model(dataloaders: torch.utils.data.DataLoader, num_epochs: int = 25, pretrained_weights: ConvNeXt.ConvNeXt_Tiny_Weights = None) -> ConvNeXt:
+            """
+            Train and validate the model on the given dataloaders.
+
+            :param dataloaders: Dataloader containing training and validation data
+            :param num_epochs: Number of epochs to train the model
+            :param pretrained_weights: The pretrained weights to use. See :class:`torchvision.models.convnext.ConvNeXt_Tiny_Weights`
+                for more details and possible values.
+            :param from_scratch: Train model from scratch or use pretrained weights
+
+            :returns: Model with the best accuracy and updates self.ohist and self.shist
+
+            """
+
+            def train_model():
+                """
+                Code template by https://github.com/inkawhich
+                """
+                since = time.time()
+
+                val_acc_history = []
+
+                best_model_wts = copy.deepcopy(self.model.state_dict())
+                best_acc = 0.0
+
+                for epoch in range(num_epochs):
+                    print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+                    print('-' * 10)
+
+                    # Each epoch has a training and validation phase
+                    for phase in ['train', 'val']:
+                        if phase == 'train':
+                            self.model.train()  # Set model to training mode
+                        else:
+                            self.model.eval()  # Set model to evaluate mode
+
+                        running_loss = 0.0
+                        running_corrects = 0
+
+                        # Iterate over data.
+                        for inputs, labels in dataloaders[phase]:
+                            inputs = inputs.to(self.device)
+                            labels = labels.to(self.device)
+
+                            # zero the parameter gradients
+                            self.optimizer.zero_grad()
+
+                            # forward
+                            # track history if only in train
+                            with torch.set_grad_enabled(phase == 'train'):
+                                # Get model outputs and calculate loss
+                                outputs = self.model(inputs)
+                                loss = self.criterion(outputs, labels)
+
+                                _, preds = torch.max(outputs, 1)
+
+                                # backward + optimize only if in training phase
+                                if phase == 'train':
+                                    loss.backward()
+                                    self.optimizer.step()
+
+                            # statistics
+                            running_loss += loss.item() * inputs.size(0)
+                            running_corrects += torch.sum(preds == labels.data)
+
+                        epoch_loss = running_loss / len(dataloaders[phase].dataset)
+                        epoch_acc = running_corrects.double() / len(dataloaders[phase].dataset)
+
+                        print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
+
+                        # deep copy the model
+                        if phase == 'val' and epoch_acc > best_acc:
+                            best_acc = epoch_acc
+                            best_model_wts = copy.deepcopy(self.model.state_dict())
+                        if phase == 'val':
+                            val_acc_history.append(epoch_acc)
+
+                    print()
+
+                time_elapsed = time.time() - since
+                print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+                print('Best val Acc: {:4f}'.format(best_acc))
+
+                # load best model weights
+                self.model.load_state_dict(best_model_wts)
+                return self.model, val_acc_history
+
+            params_to_update = self.model.parameters()
+            print("Params to learn:")
+            params_to_update = []
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    params_to_update.append(param)
+                    print("\t", name)
+
+            if not from_scratch:
+                self.model(weights=pretrained_weights, from_scratch=False)
+                self.model, hist = train_model()
+                self.ohist = [h.cpu().numpy() for h in hist]
+
+                with open('training_history/histories/pretrained_history.txt', 'a') as f:
+                    f.write(f"\n{{{time.time()}: {hist}}},\n")
+
+            else:
+                self.model(weights=None, from_scratch=True)
+                _, scratch_hist = train_model()
+                self.shist = [h.cpu().numpy() for h in scratch_hist]
+
+                with open('training_history/histories/pretrained_history.txt', 'a') as f:
+                    f.write(f"\n{{{time.time()}: {scratch_hist}}},\n")
+
+        # def finetune_model(self, dataloaders: torch.utils.data.DataLoader, num_epochs: int = 25) -> (ConvNeXt, list[float]):
+        #     print("Params to learn:")
+        #     for name, param in self.model.named_parameters():
+        #         if param.requires_grad:
+        #             print("\t", name)
+        #     pass
+
+        if 'weights' in kwargs:
+            update_model_weights(weights=kwargs['weights'])
+        elif all([
+            'dataloaders' in kwargs,
+            'num_epochs' in kwargs,
+            'pretrained_weights' in kwargs
+        ]):
+            train_and_validate_model(
+                dataloaders=kwargs['dataloaders'],
+                num_epochs=kwargs['num_epochs'],
+                pretrained_weights=kwargs['pretrained_weights']
+            )
+        else:
+            message = inspect.cleandoc("""\
+               \x1b[31m| No valid model modifying method got selected. Needed arguments in kwargs are 
+               | ... for updating the model weights:
+               | \t`\x1b[34mweights: ConvNeXt.ConvNeXt_Tiny_Weights | None\x1b[31m`
+               | ... or for training the model (with pretrained weights):
+               | \t`\x1b[34mdataloaders: torch.utils.data.DataLoader\x1b[31m`
+               | \t`\x1b[34mnum_epochs: int\x1b[31m`
+               | \t`\x1b[34mpretrained_weights: ConvNeXt.ConvNeXt_Tiny_Weights\x1b[31m`
+               \x1b[30m\
+            """)
+            print(message)
+            exit(0)
+
+        # save Model
+        self.save_time = time.strftime('%Y%m%d_%H%M%S')
+        self.save_current_model()
+        self.save_current_state_dict()
+        self.export_as_torch_script_model()
 
     @property
     def optimizer(self) -> optim.Optimizer:
@@ -222,7 +423,32 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
 
         self._optimizer = optimizer_class(self.parameters(), **kwargs)
 
+    @property
+    def criterion(self) -> torch.nn.Module:
+        """
+        :return: `torch.nn.Module` object
+        """
+        return self._criterion
+
+    @criterion.setter
+    def criterion(self, criterion: torch.nn.Module):
+        """
+        Set new Loss Function for the model
+
+        :References:
+        - PyTorch Loss Functions: https://pytorch.org/docs/stable/nn.html#loss-functions
+
+        :param criterion: loss function class from torch.nn module (e.g., torch.nn.CrossEntropyLoss, torch.nn.L1Loss)
+        """
+        self._criterion = criterion
+
+    def set_parameter_requires_grad(self, feature_extracting):
+        if feature_extracting:
+            for param in self.model.parameters():
+                param.requires_grad = False
+
     # Load and Save state_dict
+    # Todo: rename path to ... filename
     def load_current_state_dict(self, path: str, _device: torch.device = None):
         """
         Load the model's parameters (weights and biases) in the form of a state dictionary (state_dict),
@@ -244,18 +470,19 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
         self.load_state_dict(state_dict)
         self.eval()  # Set the model to evaluation mode
 
-    def save_current_state_dict(self, path: str):
+    def save_current_state_dict(self):
         """
         Save the model's parameters (weights and biases) in the form of a state dictionary (state_dict),
         which is a Python dictionary mapping each layer to its corresponding parameter tensor.
 
         :References:
         - Save Model State Dict: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-loading-model-for-inference
-
-        :param path: Path to save the current Model (File Extension should be `.pt` or `.pth`)
         """
-        # Ensure the directory exists
+        # Construct the path
+        path = f'./training_history/state_dicts/{self.save_time}.pth'
         directory = os.path.dirname(path)
+
+        # Ensure the directory exists
         if not os.path.exists(directory):
             os.makedirs(directory)
 
@@ -269,7 +496,7 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
         :References:
         - Model State Dict: https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.load_state_dict
         """
-        print("Model's state_dict:")
+        print(f"{self.save_time} - Model's state_dict:")
         for param_tensor in self.state_dict():
             print(param_tensor, "\t", self.state_dict()[param_tensor].size())
 
@@ -280,12 +507,12 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
         :References:
         - Optimizer State Dict: https://pytorch.org/docs/stable/generated/torch.optim.Optimizer.load_state_dict.html#torch.optim.Optimizer.load_state_dict
         """
-        print("Optimizer's state_dict:")
+        print(f"{self.save_time} - Optimizer's state_dict:")
         for var_name in self.optimizer.state_dict():
             print(var_name, "\t", self.optimizer.state_dict()[var_name])
 
     # Save the entire model object
-    def save_current_model(self, path: str):
+    def save_current_model(self):
         """
         Save the entire model object, including the architecture, parameters, and possibly other information
         (e.g., the optimizer, buffers, etc.) using Python's pickle module.
@@ -293,11 +520,12 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
         :References:
         - Pickle: https://docs.python.org/3/library/pickle.html
         - Save Entire Model: https://pytorch.org/tutorials/beginner/saving_loading_models.html#save-load-entire-model
-
-        :param path: Path to save the current Model (File Extension should be `.pt` or `.pth`)
         """
-        # Ensure the directory exists
+        # Construct the path
+        path = f'./training_history/models/{self.save_time}.pth'
         directory = os.path.dirname(path)
+
+        # Ensure the directory exists
         if not os.path.exists(directory):
             os.makedirs(directory)
 
@@ -305,17 +533,19 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
         torch.save(self, path)
 
     # Save entire Model as TorchScript Model
-    def export_as_torch_script_model(self, path: str):
+    def export_as_torch_script_model(self):
         """
         Export the model as TorchScript.
 
         :References:
         - Export TorchScript: https://pytorch.org/tutorials/beginner/saving_loading_models.html#export-load-model-in-torchscript-format
 
-        :param path: Path to save the TorchScript model (File Extension should be `.pt` or `.pth`)
         """
-        # Ensure the directory exists
+        # Construct the path
+        path = f'./training_history/TorchScript_models/{self.save_time}.pth'
         directory = os.path.dirname(path)
+
+        # Ensure the directory exists
         if not os.path.exists(directory):
             os.makedirs(directory)
 
@@ -324,17 +554,20 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
         model_scripted.save(path)
 
     # Save and Load for training
-    def save_current_state(self, path: str):
+    def save_current_state(self):
         """
         Saving a General Checkpoint for Inference
 
         :References:
         - Saving current State: https://pytorch.org/tutorials/beginner/saving_loading_models.html#save
-
-        :param path: Path to save the current Model TorchScript (File Extension should be `.tar`)
         """
-        if not os.path.exists(path):
-            raise ValueError(f"Path '{path}' does not exist")
+        # Construct the path
+        path = f'./training_history/checkpoint/{self.save_time}.pth'
+        directory = os.path.dirname(path)
+
+        # Ensure the directory exists
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
         torch.save({
             'epoch': self.epoch,
@@ -343,6 +576,7 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
             'loss': self.loss,
         }, path)
 
+    # Todo: rename path to ... filename
     def load_current_state(self, path: str, is_eval: bool = True):
         """
         Loading a General Checkpoint for Resuming Training

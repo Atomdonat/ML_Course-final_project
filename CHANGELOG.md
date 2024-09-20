@@ -1,18 +1,18 @@
 # Changes for current commit
 
-[//]: # (## .gitignore)
+## .gitignore
+- now ignoring `./eurosat` directory
 
 [//]: # (## dataset-train_and_test.py)
 
-
 ## model.py
 - made criterion (Loss Function) changeable 
-- completed train_model()
+- added model modification (updating weights and training)
+  - should work, but not tested yet
+  - each modification will be saved in according directory 
 
-## code_of_tutorial-convnext_version.py
-- copied code from Course Tutorial for finetuning different models and parameters (original Notebook by: https://github.com/inkawhich)
-- redesigned for ConvNeXt Tiny Usage
-- working
+[//]: # (## code_of_tutorial-convnext_version.py)
 
-[//]: # (## README.md)
-[//]: # (- minor changes)
+## README.md
+- added ToDo
+- minor changes
