@@ -1,0 +1,8 @@
+
+{1727030133.8939204: [tensor(0.0761, device='cuda:0', dtype=torch.float64)]},
+
+{1727030945.6700172: [tensor(0.1411, device='cuda:0', dtype=torch.float64)]},
+
+{1727031163.9744973: [tensor(0.0515, device='cuda:0', dtype=torch.float64)]},
+
+{1727031665.5153422: [tensor(0.1493, device='cuda:0', dtype=torch.float64)]},

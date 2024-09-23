@@ -36,9 +36,10 @@ OMP: Hint This means that multiple copies of the OpenMP runtime have been linked
 [//]: # (- **:**)
 
 ## ToDo:
-- [ ] finish code
-- [ ] add all time Accuracy and Loss histories
-  - [ ] create boxplot
+- [ ] Random Seed for Reproducibility
+- [ ] Cross-Validation 
+- [ ] Parameter Sweeping (Hyperparameter Tuning)
+- [ ] create boxplot
 
 ## Bibliography
 - [EuroSAT](https://github.com/phelber/EuroSAT)

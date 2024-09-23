@@ -1,5 +1,4 @@
-import torchvision.models
-from torchvision.models.convnext import ConvNeXt, convnext_tiny
+from torchvision.models import convnext
 import torch.optim as optim
 import os
 import torch
@@ -12,17 +11,13 @@ import time
 import copy
 from typing import Optional
 import inspect
+import json
 
 
 class Device:
     def __init__(self):
         self._current_device = torch.device("cpu")
 
-    @property
-    def device(self) -> torch.device:
-        return self._current_device
-
-    @device.setter
     def device(self, new_device: str):
         self._current_device = torch.device(new_device)
 
@@ -111,28 +106,28 @@ class Device:
 # Load entire model object
 # Todo: rename path to ... filename
 def load_current_model(path: str):
-        """
-        Load the entire model object and set it to evaluation mode.
+    """
+    Load the entire model object and set it to evaluation mode.
 
-        :References:
-        - Load Entire Model: https://pytorch.org/tutorials/beginner/saving_loading_models.html#save-load-entire-model
+    :References:
+    - Load Entire Model: https://pytorch.org/tutorials/beginner/saving_loading_models.html#save-load-entire-model
 
-        :param path: Path to the saved model file (File Extension should be `.pt` or `.pth`)
-        :return: The loaded model instance
-        """
-        if not os.path.exists(path):
-            raise ValueError(f"Path '{path}' does not exist")
+    :param path: Path to the saved model file (File Extension should be `.pt` or `.pth`)
+    :return: The loaded model instance
+    """
+    if not os.path.exists(path):
+        raise ValueError(f"Path '{path}' does not exist")
 
-        # Load the entire model (architecture + weights)
-        loaded_model = torch.load(path)
+    # Load the entire model (architecture + weights)
+    loaded_model = torch.load(path)
 
-        # Check if the loaded model is of the correct type
-        if not isinstance(loaded_model, ConvNeXtTinyEuroSAT):
-            raise ValueError("Loaded model does not match the current model class")
+    # Check if the loaded model is of the correct type
+    if not isinstance(loaded_model, ConvNeXtTinyEuroSAT):
+        raise ValueError("Loaded model does not match the current model class")
 
-        # Set the model to evaluation mode and return
-        loaded_model.eval()
-        return loaded_model
+    # Set the model to evaluation mode and return
+    loaded_model.eval()
+    return loaded_model
 
 
 # Load entire Model as TorchScript Model
@@ -159,288 +154,223 @@ def import_torch_script_model(path: str):
     return loaded_model
 
 
-class ConvNeXtTinyEuroSAT(ConvNeXt):
+class ConvNeXtTinyEuroSAT(convnext.ConvNeXt):
     """
     ConvNeXt Image Classification Model in the Tiny variant for the analysis of EuroSAT
-    Explanation of ConvNext Implementation in ChatGPT.md -> Defining a Model
 
     :References:
     - ConvNeXt Tiny: https://pytorch.org/vision/main/models/generated/torchvision.models.convnext_tiny.html
+
+    :param device: The torch device to use. By default, CPU is used.
     """
-    def __init__(self, is_pretrained: bool = False, device: torch.device = 'cpu', **kwargs):
-        """
+    def __init__(
+            self,
+            device: torch.device = 'cpu'
+    ):
+        block_setting = [
+            convnext.CNBlockConfig(96, 192, 3),
+            convnext.CNBlockConfig(192, 384, 3),
+            convnext.CNBlockConfig(384, 768, 9),
+            convnext.CNBlockConfig(768, None, 3),
+        ]
+        super(ConvNeXtTinyEuroSAT, self).__init__(block_setting)
 
-        :param device: The torch device to use. By default, CPU is used.
-        :param kwargs: Additional arguments passed to ConvNeXt:
-                       block_setting (List[CNBlockConfig]);
-                       stochastic_depth_prob (float);
-                       layer_scale (float);
-                       num_classes (int);
-                       block (Optional[Callable[..., nn.Module]]);
-                       norm_layer (Optional[Callable[..., nn.Module]]);
-        """
-        super(ConvNeXtTinyEuroSAT, self).__init__()
-
-        # define ConvNeXt Parameters
-        # self.model = convnext_tiny(
-        #     weights=prior_weights
-        # )
-        self._optimizer = None
-        self._criterion = torch.nn.CrossEntropyLoss()
-        self._model = None
-        self.save_time = 0
+        self.model = convnext.convnext_tiny(weights=None)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+        self.criterion = torch.nn.CrossEntropyLoss()
+        self.set_parameter_requires_grad(True)
+        self.model.classifier[2] = torch.nn.Linear(in_features=768, out_features=self.num_classes)
 
         self.device = device
         self.num_classes = 10  # Number of LULC Classes / Subdirectories in EuroSAT
         self.input_size = 224
         self.ohist = []
         self.shist = []
-        # initialize model
-        # Todo: replace pretrained [dep] with weights (e.g. ConvNeXt_Tiny_Weights(), previously saved ones or None)
-        self.set_parameter_requires_grad(True)
-        self.model.classifier[2] = torch.nn.Linear(in_features=768, out_features=self.num_classes)
+        self.pretrained_accuracy_history = []
+        self.pretrained_loss_history = []
+        self.scratch_accuracy_history = []
+        self.scratch_loss_history = []
+        self.save_time = 0
 
-    @property
-    def model(self) -> ConvNeXt:
+    def update_model_weights(self, weights: convnext.ConvNeXt_Tiny_Weights | None = None):
         """
-        :return: `torchvision.models.convnext.ConvNeXt` object
-        """
-        return self._model
+        Set new ConvNeXt Tiny Model weights
 
-    @model.setter
-    def model(self, from_scratch: bool = False, **kwargs):
-        """
-        Sets new weights or train `model`
-        After finishing any modification the model, its state dict and the model as a TorchScript will be saved.
-
-        :References:
+        :references:
         - ConvNeXt Tiny Weights: https://pytorch.org/vision/main/models/generated/torchvision.models.convnext_tiny.html#torchvision.models.ConvNeXt_Tiny_Weights
 
-        :param from_scratch:
-        :param kwargs: Additional arguments passed to model to decide which method to call
-                       update_model_weights() - Set new ConvNeXt Tiny Model weights;
-                       :param weights (ConvNeXt.ConvNeXt_Tiny_Weights | None):
-
-                       train_and_validate_model() - Train and validate the model on the given dataloaders;
-                       :param dataloaders: Dataloader containing training and validation data
-                       :param num_epochs: Number of epochs to train the model
-                       :param pretrained_weights: The pretrained weights to use. See :class:`torchvision.models.convnext.ConvNeXt_Tiny_Weights`
-                           for more details and possible values.
-                       :param from_scratch: Train model from scratch or use pretrained weights
+        :param weights: The pretrained weights to use. See :class:`torchvision.models.convnext.ConvNeXt_Tiny_Weights`
+            for more details and possible values. By default, no pre-trained weights are used.
         """
-        def update_model_weights(weights: ConvNeXt.ConvNeXt_Tiny_Weights | None = None):
+
+        model_ft = convnext.convnext_tiny(weights=weights)
+
+        self.set_parameter_requires_grad(True)
+        model_ft.classifier[2] = torch.nn.Linear(in_features=768, out_features=self.num_classes)
+
+        self.save_model()
+        self.model = model_ft
+        self.model.to(self.device)
+
+    def train_and_validate_model(
+            self,
+            training_dataloader: torch.utils.data.DataLoader,
+            validation_dataloader: torch.utils.data.DataLoader,
+            num_epochs: int = 10,
+            pretrained_weights: convnext.ConvNeXt_Tiny_Weights = None,
+            from_scratch: bool = False
+    ) -> convnext.ConvNeXt:
+        """
+        Train and validate the model on the given dataloaders.
+
+        :param training_dataloader: Dataloader containing training data
+        :type training_dataloader: torch.utils.data.DataLoader
+        :param validation_dataloader: Dataloader containing validation data
+        :type validation_dataloader: torch.utils.data.DataLoader
+        :param num_epochs: Number of epochs to train the model
+        :param pretrained_weights: The pretrained weights to use. See :class:`torchvision.models.convnext.ConvNeXt_Tiny_Weights`
+            for more details and possible values.
+        :param from_scratch: Whether to train the model from scratch. By default, no pre-trained weights are used.
+
+        :returns: Model with the best accuracy and updates self.ohist and self.shist
+        """
+
+        dataloaders = {'train': training_dataloader, 'val': validation_dataloader}
+
+        def train_model():
             """
-            Set new ConvNeXt Tiny Model weights
-
-            :references:
-            - ConvNeXt Tiny Weights: https://pytorch.org/vision/main/models/generated/torchvision.models.convnext_tiny.html#torchvision.models.ConvNeXt_Tiny_Weights
-
-            :param weights: The pretrained weights to use. See :class:`torchvision.models.convnext.ConvNeXt_Tiny_Weights`
-                for more details and possible values. By default, no pre-trained weights are used.
+            Code adaptation of https://colab.research.google.com/github/pytorch/tutorials/blob/gh-pages/_downloads/finetuning_torchvision_models_tutorial.ipynb
             """
-            if not from_scratch:
-                model_ft = convnext_tiny(weights=weights)
-            else:
-                model_ft = convnext_tiny(weights=None)
+            since = time.time()
 
-            self.set_parameter_requires_grad(True)
-            model_ft.classifier[2] = torch.nn.Linear(in_features=768, out_features=self.num_classes)
+            val_acc_history = []
+            pretrained_accuracy_history = []
+            pretrained_loss_history = []
+            scratch_accuracy_history = []
+            scratch_loss_history = []
 
-            self._model = model_ft
-            self._model.to(self.device)
+            best_model_wts = copy.deepcopy(self.model.state_dict())
+            best_acc = 0.0
 
-        def train_and_validate_model(dataloaders: torch.utils.data.DataLoader, num_epochs: int = 25, pretrained_weights: ConvNeXt.ConvNeXt_Tiny_Weights = None) -> ConvNeXt:
-            """
-            Train and validate the model on the given dataloaders.
+            for epoch in range(num_epochs):
+                print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+                print('-' * 10)
 
-            :param dataloaders: Dataloader containing training and validation data
-            :param num_epochs: Number of epochs to train the model
-            :param pretrained_weights: The pretrained weights to use. See :class:`torchvision.models.convnext.ConvNeXt_Tiny_Weights`
-                for more details and possible values.
-            :param from_scratch: Train model from scratch or use pretrained weights
+                # Each epoch has a training and validation phase
+                for phase in ['train', 'val']:
+                    if phase == 'train':
+                        self.model.train()  # Set model to training mode
+                    else:
+                        self.model.eval()  # Set model to evaluate mode
 
-            :returns: Model with the best accuracy and updates self.ohist and self.shist
+                    running_loss = 0.0
+                    running_corrects = 0
 
-            """
+                    # Iterate over data.
+                    for inputs, labels in dataloaders[phase]:
+                        inputs = inputs.to(self.device)
+                        labels = labels.to(self.device)
 
-            def train_model():
-                """
-                Code template by https://github.com/inkawhich
-                """
-                since = time.time()
+                        # zero the parameter gradients
+                        self.optimizer.zero_grad()
 
-                val_acc_history = []
+                        # forward
+                        # track history if only in train
+                        with torch.set_grad_enabled(phase == 'train'):
+                            # Get model outputs and calculate loss
+                            outputs = self.model(inputs)
+                            loss = self.criterion(outputs, labels)
 
-                best_model_wts = copy.deepcopy(self.model.state_dict())
-                best_acc = 0.0
+                            _, preds = torch.max(outputs, 1)
 
-                for epoch in range(num_epochs):
-                    print('Epoch {}/{}'.format(epoch, num_epochs - 1))
-                    print('-' * 10)
+                            # backward + optimize only if in training phase
+                            if phase == 'train':
+                                loss.backward()
+                                self.optimizer.step()
 
-                    # Each epoch has a training and validation phase
-                    for phase in ['train', 'val']:
-                        if phase == 'train':
-                            self.model.train()  # Set model to training mode
-                        else:
-                            self.model.eval()  # Set model to evaluate mode
+                        # statistics
+                        running_loss += loss.item() * inputs.size(0)
+                        running_corrects += torch.sum(preds == labels.data)
 
-                        running_loss = 0.0
-                        running_corrects = 0
+                    epoch_loss = running_loss / len(dataloaders[phase].dataset)
+                    epoch_acc = running_corrects.double() / len(dataloaders[phase].dataset)
 
-                        # Iterate over data.
-                        for inputs, labels in dataloaders[phase]:
-                            inputs = inputs.to(self.device)
-                            labels = labels.to(self.device)
+                    print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
 
-                            # zero the parameter gradients
-                            self.optimizer.zero_grad()
+                    if not from_scratch:
+                        pretrained_accuracy_history.append(epoch_acc)
+                        pretrained_loss_history.append(epoch_loss)
+                    else:
+                        scratch_accuracy_history.append(epoch_acc)
+                        scratch_loss_history.append(epoch_loss)
 
-                            # forward
-                            # track history if only in train
-                            with torch.set_grad_enabled(phase == 'train'):
-                                # Get model outputs and calculate loss
-                                outputs = self.model(inputs)
-                                loss = self.criterion(outputs, labels)
+                    # deep copy the model
+                    if phase == 'val' and epoch_acc > best_acc:
+                        best_acc = epoch_acc
+                        best_model_wts = copy.deepcopy(self.model.state_dict())
+                    if phase == 'val':
+                        val_acc_history.append(epoch_acc)
 
-                                _, preds = torch.max(outputs, 1)
+                print()
 
-                                # backward + optimize only if in training phase
-                                if phase == 'train':
-                                    loss.backward()
-                                    self.optimizer.step()
+            time_elapsed = time.time() - since
+            print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+            print('Best val Acc: {:4f}'.format(best_acc))
 
-                            # statistics
-                            running_loss += loss.item() * inputs.size(0)
-                            running_corrects += torch.sum(preds == labels.data)
+            # load best model weights
+            self.model.load_state_dict(best_model_wts)
+            return self.model, val_acc_history
 
-                        epoch_loss = running_loss / len(dataloaders[phase].dataset)
-                        epoch_acc = running_corrects.double() / len(dataloaders[phase].dataset)
+        params_to_update = self.model.parameters()
+        print("Params to learn:")
+        params_to_update = []
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                params_to_update.append(param)
+                print("\t", name)
 
-                        print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
+        if not from_scratch:
+            self.update_model_weights(weights=pretrained_weights)
+            self.model, hist = train_model()
+            self.ohist = [h.cpu().numpy() for h in hist]
 
-                        # deep copy the model
-                        if phase == 'val' and epoch_acc > best_acc:
-                            best_acc = epoch_acc
-                            best_model_wts = copy.deepcopy(self.model.state_dict())
-                        if phase == 'val':
-                            val_acc_history.append(epoch_acc)
-
-                    print()
-
-                time_elapsed = time.time() - since
-                print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-                print('Best val Acc: {:4f}'.format(best_acc))
-
-                # load best model weights
-                self.model.load_state_dict(best_model_wts)
-                return self.model, val_acc_history
-
-            params_to_update = self.model.parameters()
-            print("Params to learn:")
-            params_to_update = []
-            for name, param in self.model.named_parameters():
-                if param.requires_grad:
-                    params_to_update.append(param)
-                    print("\t", name)
-
-            if not from_scratch:
-                self.model(weights=pretrained_weights, from_scratch=False)
-                self.model, hist = train_model()
-                self.ohist = [h.cpu().numpy() for h in hist]
-
-                with open('training_history/histories/pretrained_history.txt', 'a') as f:
-                    f.write(f"\n{{{time.time()}: {hist}}},\n")
-
-            else:
-                self.model(weights=None, from_scratch=True)
-                _, scratch_hist = train_model()
-                self.shist = [h.cpu().numpy() for h in scratch_hist]
-
-                with open('training_history/histories/pretrained_history.txt', 'a') as f:
-                    f.write(f"\n{{{time.time()}: {scratch_hist}}},\n")
-
-        # def finetune_model(self, dataloaders: torch.utils.data.DataLoader, num_epochs: int = 25) -> (ConvNeXt, list[float]):
-        #     print("Params to learn:")
-        #     for name, param in self.model.named_parameters():
-        #         if param.requires_grad:
-        #             print("\t", name)
-        #     pass
-
-        if 'weights' in kwargs:
-            update_model_weights(weights=kwargs['weights'])
-        elif all([
-            'dataloaders' in kwargs,
-            'num_epochs' in kwargs,
-            'pretrained_weights' in kwargs
-        ]):
-            train_and_validate_model(
-                dataloaders=kwargs['dataloaders'],
-                num_epochs=kwargs['num_epochs'],
-                pretrained_weights=kwargs['pretrained_weights']
-            )
         else:
-            message = inspect.cleandoc("""\
-               \x1b[31m| No valid model modifying method got selected. Needed arguments in kwargs are 
-               | ... for updating the model weights:
-               | \t`\x1b[34mweights: ConvNeXt.ConvNeXt_Tiny_Weights | None\x1b[31m`
-               | ... or for training the model (with pretrained weights):
-               | \t`\x1b[34mdataloaders: torch.utils.data.DataLoader\x1b[31m`
-               | \t`\x1b[34mnum_epochs: int\x1b[31m`
-               | \t`\x1b[34mpretrained_weights: ConvNeXt.ConvNeXt_Tiny_Weights\x1b[31m`
-               \x1b[30m\
-            """)
-            print(message)
-            exit(0)
+            self.update_model_weights(weights=None)
+            _, scratch_hist = train_model()
+            self.shist = [h.cpu().numpy() for h in scratch_hist]
 
+        self.save_model()
+
+    def save_model(self):
         # save Model
-        self.save_time = time.strftime('%Y%m%d_%H%M%S')
+        self.save_time = time.strftime('%Y-%m-%d_%H-%M-%S')
+
+        self.save_history_lists()
         self.save_current_model()
         self.save_current_state_dict()
-        self.export_as_torch_script_model()
+        # self.export_as_torch_script_model()
 
-    @property
-    def optimizer(self) -> optim.Optimizer:
-        """
-        :return: `torch.optim.Optimizer` object
-        """
-        return self._optimizer
-
-    @optimizer.setter
-    def optimizer(self, optimizer_class, **kwargs):
+    def update_optimizer(self, optimizer_class_instance: torch.optim.Optimizer):
         """
         Set new Optimizer for the model or change Optimizer Parameters
 
         :References:
         - PyTorch Optimizer: https://pytorch.org/docs/stable/optim.html#algorithms
 
-        :param optimizer_class: optimizer class from torch.optim module (e.g., torch.optim.SGD, torch.optim.Adam)
-        :param kwargs: keyword arguments for the optimizer, reference optimizer documentation for more details
+        :param optimizer_class_instance: instantiated optimizer class from torch.optim module (e.g., torch.optim.SGD, torch.optim.Adam)
         """
+        self.optimizer = optimizer_class_instance
 
-        if not callable(optimizer_class):
-            raise ValueError("Optimizer must be a callable class from torch.optim (e.g., torch.optim.SGD, torch.optim.Adam)")
-
-        self._optimizer = optimizer_class(self.parameters(), **kwargs)
-
-    @property
-    def criterion(self) -> torch.nn.Module:
-        """
-        :return: `torch.nn.Module` object
-        """
-        return self._criterion
-
-    @criterion.setter
-    def criterion(self, criterion: torch.nn.Module):
+    def update_criterion(self, criterion_instance: torch.nn.Module):
         """
         Set new Loss Function for the model
 
         :References:
         - PyTorch Loss Functions: https://pytorch.org/docs/stable/nn.html#loss-functions
 
-        :param criterion: loss function class from torch.nn module (e.g., torch.nn.CrossEntropyLoss, torch.nn.L1Loss)
+        :param criterion_instance: instantiated loss function class from torch.nn module (e.g., torch.nn.CrossEntropyLoss, torch.nn.L1Loss)
         """
-        self._criterion = criterion
+        self.criterion = criterion_instance
 
     def set_parameter_requires_grad(self, feature_extracting):
         if feature_extracting:
@@ -550,6 +480,7 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
             os.makedirs(directory)
 
         # Export the model to TorchScript
+        # Fixme: throws error on execution
         model_scripted = torch.jit.script(self)
         model_scripted.save(path)
 
@@ -601,12 +532,42 @@ class ConvNeXtTinyEuroSAT(ConvNeXt):
         else:
             self.train()
 
+    def save_history_lists(self):
+        # convert lists and save stats f.e. to plot later
+        pretrained_accuracy_history_list = [h.cpu().numpy().tolist() for h in self.pretrained_accuracy_history]
+        pretrained_loss_history_list = [h.cpu().numpy().tolist() for h in self.pretrained_loss_history]
+        scratch_accuracy_history_list = [h.cpu().numpy().tolist() for h in self.scratch_accuracy_history]
+        scratch_loss_history_list = [h.cpu().numpy().tolist() for h in self.scratch_loss_history]
+
+        with open(f'training_history/history.json', 'r') as f:
+            data = json.load(f)
+            data[self.save_time] = {
+                "pretrained_accuracy_history_list": pretrained_accuracy_history_list,
+                "pretrained_loss_history_list": pretrained_loss_history_list,
+                "scratch_accuracy_history_list": scratch_accuracy_history_list,
+                "scratch_loss_history_list": scratch_loss_history_list,
+            }
+
+        with open(f'training_history/history.json', 'w') as f:
+            json.dump(data, f, indent=4)
+            f.write("\n")
 
 if __name__ == "__main__":
-    # TORCH_SCRIPT_MODEL_PATH = './'
     devices = Device()
-    print(devices.available_devices())
+    devices.device = 'cuda:0'
 
-    devices.get_cpu_info()
-    devices.get_gpu_info()
-    # devices.device = 'cuda:0'
+    num_classes = 10
+    num_epochs = 5
+
+    convnext_weights_pretrained = convnext.ConvNeXt_Tiny_Weights.IMAGENET1K_V1  # Default pretrained weights
+    convnext_weights_scratch = None
+
+    cn_model = ConvNeXtTinyEuroSAT(device=devices.device)
+
+    cn_model.update_model_weights(weights=None)
+    cn_model.update_optimizer(torch.optim.Adam(cn_model.parameters(), lr=1e-3))
+    cn_model.update_criterion(torch.nn.CrossEntropyLoss())
+
+    for train_status in range(2):
+        for current_lr in [1e-3,5e-3,1e-2,5e-2,1e-1,5e-1,1e-0]:
+
