@@ -1,19 +1,7 @@
 # Changes for current commit
 
-[//]: # (## .gitignore)
+## predict_class.py/.ipynb
+- models can now make accurate predictions
+- added plotting of confusion matrix
 
-
-[//]: # (## dataset-train_and_test.py)
-
-## model.py
-- model creation and training working
-  - saving kinda
-- moved from `property` and `setter` back to pythonic class methods
-- added (better) history tracking
-
-## code_of_tutorial-convnext_version.py
-- updated `plot_training()` 
-- updated history tracking
-
-## README.md
-- minor changes
+[//]: # (## README.md)

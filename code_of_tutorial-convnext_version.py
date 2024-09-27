@@ -3,28 +3,40 @@ from __future__ import division
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
 import torchvision
 from torchvision import datasets, models, transforms
-import matplotlib.pyplot as plt
 import time
-import os
 import copy
-import json
 
+label_map = {
+    0: 'AnnualCrop',
+    1: 'Forest',
+    2: 'HerbaceousVegetation',
+    3: 'Highway',
+    4: 'Industrial',
+    5: 'Pasture',
+    6: 'PermanentCrop',
+    7: 'Residential',
+    8: 'River',
+    9: 'SeaLake'
+}
 
-def finetuning_torchvision_models(learning_rate):
+label_count = {
+    0: 0,
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0,
+    6: 0,
+    7: 0,
+    8: 0,
+    9: 0
+}
+
+def finetuning_torchvision_models():
     print("PyTorch Version: ", torch.__version__)
     print("Torchvision Version: ", torchvision.__version__)
-    
-    pretrained_trainging_accuracy_history = []
-    pretrained_validation_accuracy_history = []
-    pretrained_trainging_loss_history = []
-    pretrained_validation_loss_history = []
-    scratch_trainging_accuracy_history = []
-    scratch_validation_accuracy_history = []
-    scratch_trainging_loss_history = []
-    scratch_validation_loss_history = []
 
     def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, from_scratch: bool = False):
         since = time.time()
@@ -58,6 +70,8 @@ def finetuning_torchvision_models(learning_rate):
                     inputs = inputs.to(device)
                     labels = labels.to(device)
 
+                    label_count[labels] += 1
+
                     # zero the parameter gradients
                     optimizer.zero_grad()
 
@@ -83,20 +97,6 @@ def finetuning_torchvision_models(learning_rate):
                 epoch_acc = running_corrects.double() / len(dataloaders[phase].dataset)
 
                 print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc))
-                if not from_scratch:
-                    if phase == 'train':
-                            pretrained_trainging_accuracy_history.append(float(epoch_acc))
-                            pretrained_trainging_loss_history.append(float(epoch_loss))
-                    elif phase == 'val':
-                        pretrained_validation_accuracy_history.append(float(epoch_acc))
-                        pretrained_validation_loss_history.append(float(epoch_loss))
-                else:
-                    if phase == 'train':
-                        scratch_trainging_accuracy_history.append(float(epoch_acc))
-                        scratch_trainging_loss_history.append(float(epoch_loss))
-                    elif phase == 'val':
-                        scratch_validation_accuracy_history.append(float(epoch_acc))
-                        scratch_validation_loss_history.append(float(epoch_loss))
                     
                 # deep copy the model
                 if phase == 'val' and epoch_acc > best_acc:
@@ -138,32 +138,30 @@ def finetuning_torchvision_models(learning_rate):
         return model_ft, input_size
 
     # Initialize the model for this run
-    _, input_size = initialize_model(num_classes, feature_extract, use_pretrained=True)
+    input_size = 224
 
-    # Print the model we just instantiated
-    # print(model_ft)
-
-    # Data augmentation and normalization for training
-    # Just normalization for validation
     data_transforms = {
         'train': transforms.Compose([
             transforms.RandomResizedCrop(input_size),
             transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+            transforms.RandomRotation(10),
             transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            transforms.Normalize([0.3444, 0.3803, 0.4078], [0.0931, 0.0648, 0.0542])  # ImagNET default: [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
         ]),
         'val': transforms.Compose([
             transforms.Resize(input_size),
             transforms.CenterCrop(input_size),
             transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            transforms.Normalize([0.3444, 0.3803, 0.4078], [0.0931, 0.0648, 0.0542])  # ImagNET default: [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
         ]),
     }
 
     print("\x1b[32m\nInitializing Datasets and Dataloaders...\033[38;5;188m")
 
     # Create training and validation datasets
-    eurosat_dataset = datasets.ImageFolder('./eurosat/2750')
+    eurosat_dataset = datasets.eurosat.EuroSAT('./', download=True, transform=data_transforms['train'])
     train_dataset, validation_dataset = torch.utils.data.random_split(eurosat_dataset, [0.8, 0.2])
 
     train_dataset.dataset.transform = data_transforms['train']
@@ -195,87 +193,15 @@ def finetuning_torchvision_models(learning_rate):
             if param.requires_grad:
                 print("\t",name)
 
-    optimizer_ft = optim.Adam(model_ft.parameters(), lr=learning_rate)  # optim.SGD(params_to_update, lr=0.001, momentum=0.9)
-    sc_optimizer_ft = optim.Adam(model_ft.parameters(), lr=learning_rate)  # optim.SGD(params_to_update, lr=0.001, momentum=0.9)
+    optimizer_ft = optim.AdamW(model_ft.parameters(), lr=1e-3, weight_decay=5e-4)  # optim.SGD(params_to_update, lr=0.001, momentum=0.9), optim.Adam(model_ft.parameters(), lr=learning_rate)
+    sc_optimizer_ft = optim.AdamW(model_ft.parameters(), lr=5e-4, weight_decay=5e-4)  # optim.SGD(params_to_update, lr=0.001, momentum=0.9), optim.Adam(model_ft.parameters(), lr=learning_rate)
 
     criterion = nn.CrossEntropyLoss()
     sc_criterion_ft = nn.CrossEntropyLoss()
 
-    # Observe that all parameters are being optimized
-    optimizer_ft = optim.Adam(model_ft.parameters(), lr=0.001)  # optim.SGD(params_to_update, lr=0.001, momentum=0.9)
-
-    # Setup the loss fxn
-    criterion = nn.CrossEntropyLoss()
-
     # Train and evaluate
     model_ft, hist = train_model(model_ft, dataloaders_dict, criterion, optimizer_ft, num_epochs=num_epochs, from_scratch=False)
     _,scratch_hist = train_model(scratch_model, dataloaders_dict, sc_criterion_ft, sc_optimizer_ft, num_epochs=num_epochs, from_scratch=True)
-
-    return (
-        pretrained_trainging_accuracy_history, 
-        pretrained_trainging_loss_history,
-        pretrained_validation_accuracy_history,
-        pretrained_validation_loss_history, 
-        scratch_trainging_accuracy_history, 
-        scratch_trainging_loss_history, 
-        scratch_validation_accuracy_history, 
-        scratch_validation_loss_history
-    )
-
-
-def plot_training(pretrained_accuracy_history, pretrained_loss_history, scratch_accuracy_history, scratch_loss_history):
-    num_epochs = len(pretrained_accuracy_history) - 1
-    _x = range(0, num_epochs + 1)
-
-    # Plot Trendlines for each Accuracy
-    if len(pretrained_accuracy_history) > 1:
-        trend_pah = np.polyfit(_x, pretrained_accuracy_history, 2)
-        poly_trend_pah = np.poly1d(trend_pah)
-    else:
-        poly_trend_pah = [0] * num_epochs
-
-    if len(pretrained_loss_history) > 1:
-        trend_plh = np.polyfit(_x, pretrained_loss_history, 2)
-        poly_trend_plh = np.poly1d(trend_plh)
-    else:
-        poly_trend_plh = [0] * num_epochs
-
-    if len(scratch_accuracy_history) > 1:
-        trend_sah = np.polyfit(_x, scratch_accuracy_history, 2)
-        poly_trend_sah = np.poly1d(trend_sah)
-    else:
-        poly_trend_sah = [0] * num_epochs
-
-    if len(scratch_loss_history) > 1:
-        trend_slh = np.polyfit(_x, scratch_loss_history, 2)
-        poly_trend_slh = np.poly1d(trend_slh)
-    else:
-        poly_trend_slh = [0] * num_epochs
-
-    plt.title("Training Accuracy and Loss vs. Number of Training Epochs")
-    plt.xlabel("Training Epochs")
-    plt.ylabel("Accuracy and Loss")
-
-    # Accuracy plot
-    plt.plot(_x, poly_trend_pah(_x), label="Pretrained Acc Trend", color="cyan", linewidth=1)
-    plt.plot(_x, pretrained_accuracy_history, label="Pretrained Acc", color='blue', linewidth=1, linestyle="--")
-
-    plt.plot(_x, poly_trend_sah(_x), label="Scratch Acc Trend", color="orange", linewidth=1)
-    plt.plot(_x, scratch_accuracy_history, label="Scratch Acc", color='red', linewidth=1, linestyle="--")
-
-    # Loss plot
-    plt.plot(_x, poly_trend_plh(_x), label="Pretrained Loss Trend", color="cyan", linewidth=1)
-    plt.plot(_x, pretrained_loss_history, label="Pretrained Loss", color='blue', linewidth=1, linestyle="--")
-
-    plt.plot(_x, poly_trend_slh(_x), label="Scratch Loss Trend", color="orange", linewidth=1)
-    plt.plot(_x, scratch_loss_history, label="Scratch Loss", color='red', linewidth=1, linestyle="--")
-
-    # Y-axis limits
-    plt.ylim((0, 1.))
-    plt.yticks(np.arange(0, 1., 0.05))
-    plt.xticks(np.arange(0, num_epochs + 1, 1.0))
-    plt.legend()
-    plt.show()
 
 
 if __name__ == '__main__':
@@ -288,90 +214,16 @@ if __name__ == '__main__':
 
     # Batch size for training (change depending on how much memory you have)
     # Todo: increase while memory allows it, for better performance
-    batch_size = 160  # 160: 21/24 GB or 87.5% VRAM usage
+    batch_size = 32  # 160: 21/24 GB or 87.5% VRAM usage
 
     # Number of epochs to train for
-    num_epochs = 2
+    num_epochs = 5
 
     # Flag for feature extracting. When False, we finetune the whole model,
     #   when True we only update the reshaped layer params
     feature_extract = True
 
-    current_model = finetuning_torchvision_models(
-            learning_rate=0.005,
-    )
+    current_model = finetuning_torchvision_models()
 
-    ptah, ptlh, pvah, pvlh, stah, stlh, svah, svlh = current_model
-    
-    plot_training(
-        pretrained_accuracy_history=ptah,
-        pretrained_loss_history=ptlh,
-        scratch_accuracy_history=stah,
-        scratch_loss_history=stlh,
-    )
-
-    # hist = {
-    #     "pretrained_trainging_accuracy_history_list": [
-    #         0.9251388888888888,
-    #         0.9616203703703703,
-    #         0.96875,
-    #         0.9718055555555555,
-    #         0.9737962962962963
-    #     ],
-    #     "pretrained_validation_accuracy_history_list": [
-    #         0.9551851851851851,
-    #         0.9594444444444444,
-    #         0.9653703703703703,
-    #         0.9653703703703703,
-    #         0.9653703703703703
-    #     ],
-    #     "pretrained_trainging_loss_history_list": [
-    #         0.2484274262079486,
-    #         0.11589555773470137,
-    #         0.0942358837083534,
-    #         0.08386080654131042,
-    #         0.07655131601625019
-    #     ],
-    #     "pretrained_validation_loss_history_list": [
-    #         0.12922823583638227,
-    #         0.11539074916530538,
-    #         0.10539069711058228,
-    #         0.10570607389564868,
-    #         0.10262144000993835
-    #     ],
-    #     "scratch_trainging_accuracy_history_list": [
-    #         0.12342592592592593,
-    #         0.12342592592592593,
-    #         0.12342592592592593,
-    #         0.12342592592592593,
-    #         0.12342592592592593
-    #     ],
-    #     "scratch_validation_accuracy_history_list": [
-    #         0.12796296296296295,
-    #         0.12796296296296295,
-    #         0.12796296296296295,
-    #         0.12796296296296295,
-    #         0.12796296296296295
-    #     ],
-    #     "scratch_trainging_loss_history_list": [
-    #         2.409748919804891,
-    #         2.4097488862496834,
-    #         2.409748930401272,
-    #         2.409748923337018,
-    #         2.4097488950800012
-    #     ],
-    #     "scratch_validation_loss_history_list": [
-    #         2.4094337534021446,
-    #         2.4094338364071315,
-    #         2.4094337940216066,
-    #         2.4094338399392585,
-    #         2.409433756934272
-    #     ]
-    # }
-
-    # plot_training(
-    #     pretrained_accuracy_history=hist["pretrained_trainging_accuracy_history_list"],
-    #     pretrained_loss_history=hist["pretrained_trainging_loss_history_list"],
-    #     scratch_accuracy_history=hist["scratch_trainging_accuracy_history_list"],
-    #     scratch_loss_history=hist["scratch_trainging_loss_history_list"]
-    # )
+    for i in label_count:
+        print(i)
